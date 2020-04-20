@@ -105,8 +105,8 @@ def preprocess(X: ndarray) -> ndarray:
 
 def main() -> None:
     clsfer_kind = 'KNN'
-    Tx, Ty = mnist_reader.load_mnist('../data/fashion', kind='train')
-    Vx, Vy = mnist_reader.load_mnist('../data/fashion', kind='t10k')
+    Tx, Ty = mnist_reader.load_mnist('../../data/fashion', kind='train')
+    Vx, Vy = mnist_reader.load_mnist('../../data/fashion', kind='t10k')
     pre_start = time.time()
     Tx = preprocess(Tx)
     Vx = preprocess(Vx)
