@@ -6,8 +6,11 @@ from numpy import ndarray
 import pandas as pd
 from utils import mnist_reader
 
-from neuralbase import NeuralNet
-from bp import BP
+from nnlib.base import NeuralNet
+from nnlib.bp import buildBP  # pylint: disable=W0611
+from nnlib.model import Sequential
+from nnlib.layers import FCFactory, Conv2DFactory
+from nnlib.activation import Sigmoid
 
 CLS_LEN = 10
 CLASSES = list(range(CLS_LEN))
@@ -54,7 +57,7 @@ def verify(clsfer: NeuralNet, X: ndarray, Y: ndarray):
     r_poss = clsfer.calc(X)
     run_end = time.time()
     run_time = run_end - run_start
-    r = np.argmax(r_poss, axis=0)
+    r = np.argmax(r_poss, axis=1)
     result = np.zeros((10, 10))
     for i in range(len(Y)):
         result[Y[i]][r[i]] += 1
@@ -78,9 +81,9 @@ def verify(clsfer: NeuralNet, X: ndarray, Y: ndarray):
 
 
 def label2Y(label: ndarray) -> ndarray:
-    Yo = np.zeros((CLS_LEN, len(label)))
-    for i in range(len(label)):
-        Yo[label[i], i] = 1.0
+    Yo = np.zeros((len(label), CLS_LEN))
+    idx = np.arange(len(label)) * CLS_LEN + label
+    np.put(Yo, idx, 1)
     return Yo
 
 
@@ -92,29 +95,42 @@ def preprocess(X: ndarray) -> ndarray:
 def main() -> None:
     Tx, Ty = mnist_reader.load_mnist('../../data/fashion', kind='train')
     Vx, Vy = mnist_reader.load_mnist('../../data/fashion', kind='t10k')
+    Tx = Tx[:2000]
+    Ty = Ty[:2000]
 
     Tx = preprocess(Tx)
+    Tyy = label2Y(Ty)
     Vx = preprocess(Vx)
     train_time = 0.0
     eta = 0.4
-    bp = BP(Tx.shape[1], [128, 256, 64, CLS_LEN], eta)  # pylint: disable=E1136
+    # model = buildBP(Tx.shape[1], [128, 256, 64, CLS_LEN],
+    #                eta)  # pylint: disable=E1136
+    model = Sequential(np.array([28, 28, 1]))
+    model.add(Conv2DFactory((5, 5), 3, Sigmoid(), eta))
+    model.add(FCFactory(200, Sigmoid(), eta))
+    model.add(FCFactory(64, Sigmoid(), eta))
+    model.add(FCFactory(CLS_LEN, Sigmoid(), eta))
+
+    for layer in model.layers:
+        print(layer.isize().prod(), layer.osize().prod())
+
     for i in range(50):
-        blk = min(i*2+1, 100)
+        blk = min(i*10+1, 5000)
         train_start = time.time()
-        bp.trainBGD(Tx.T, label2Y(Ty), blk)
+        model.trainBGD(Tx, Tyy, blk)
         train_end = time.time()
         print(f'------ epoch {i} -------')
         print(f'eta: {eta}, blk: {blk}')
         print(f'training time: {train_end-train_start}s')
         train_time += train_end - train_start
-        verify(bp, Vx.T, Vy)
+        verify(model, Vx, Vy)
         eta = max(eta * 0.9, 0.001)
-        bp.set_eta(eta)
+        model.set_eta(eta)
     print(f'training time: {train_time}s')
     print('verify on Tx')
-    verify(bp, Tx.T, Ty)
+    verify(model, Tx, Ty)
     print('verify on Vx')
-    verify(bp, Vx.T, Vy)
+    verify(model, Vx, Vy)
 
 
 if __name__ == '__main__':
