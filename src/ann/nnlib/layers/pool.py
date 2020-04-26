@@ -1,7 +1,7 @@
-from typing import Tuple, Dict
-from math import ceil
+from typing import Tuple, Callable
 
 import numpy as np
+from skimage.util import view_as_blocks
 
 from ..base import NeuralLayer, NeuralLayerFactory
 
@@ -9,14 +9,21 @@ from ..base import NeuralLayer, NeuralLayerFactory
 class Pool2D(NeuralLayer):
     def __init__(self, isize: Tuple[int, int, int], pool_size: Tuple[int, int], kind: str) -> None:
         self.isz = isize
-        self.osz = (ceil(isize[0] / pool_size[0]),
-                    ceil(isize[1] / pool_size[1]),
+        assert isize[0] % pool_size[0] == 0
+        assert isize[1] % pool_size[1] == 0
+        self.osz = (isize[0] // pool_size[0],
+                    isize[1] // pool_size[1],
                     isize[2])
         self.k = pool_size
-        if kind not in ['max', 'mean']:
-            raise NotImplementedError('invalid type of pooling')
         self.kind = kind
-        self.cache: Dict[str, np.ndarray] = {}
+        if self.kind == 'max':
+            self.func = np.max
+            self.train_func = self.train_max
+        elif self.kind == 'mean':
+            self.func = np.mean
+            self.train_func = self.train_mean
+        else:
+            raise NotImplementedError('invalid type of pooling')
 
     def isize(self) -> np.ndarray:
         return np.array(self.isz)
@@ -27,62 +34,45 @@ class Pool2D(NeuralLayer):
     def activate(self, net: np.ndarray) -> np.ndarray:
         return net
 
-    def dactivate(self, net: np.ndarray) -> np.ndarray:
-        return np.ones(net.shape)
-
-    def set_eta(self, eta: float) -> None:
+    def update_eta(self, update: Callable[[float], float]) -> None:
         pass
 
     def net(self, X: np.ndarray) -> np.ndarray:
         X = X.reshape((len(X), *self.isz))
-        net = np.zeros((len(X), *self.osz))
-        func = np.max if self.kind == 'max' else np.mean
-
+        blocks = view_as_blocks(X, (1, *self.k, 1))
+        net = self.func(blocks, axis=(4, 5, 6, 7))
         ro, co, cho = self.osz
-        for i in range(ro):
-            r_start = i*self.k[0]
-            r_end = r_start+self.k[0]
-            for j in range(co):
-                c_start = j*self.k[1]
-                c_end = c_start+self.k[1]
-                net[:, i, j, :] = \
-                    func(X[:, r_start:r_end, c_start:c_end, :], axis=(1, 2))
-
         return net.reshape((len(X), ro*co*cho))
 
-    def train(self, dE: np.ndarray, net: np.ndarray, X: np.ndarray) -> np.ndarray:
+    def train_max(self, dE: np.ndarray, X: np.ndarray) -> np.ndarray:
         dE = dE.reshape((len(X), *self.osz))
         X = X.reshape((len(X), *self.isz))
         dE_in = np.zeros((len(X), *self.isz))
-
-        ro, co = self.osz[:2]
-        for i in range(ro):
-            r_start = i*self.k[0]
-            r_end = r_start+self.k[0]
-            for j in range(co):
-                c_start = j*self.k[1]
-                c_end = c_start+self.k[1]
-                block = dE_in[:, r_start:r_end, c_start:c_end, :]
-                if self.kind == 'max':
-                    block[:, :, :, :] = \
-                        self.max_mask(X[:, r_start:r_end, c_start:c_end, :]) * \
-                        dE[:, i:i+1, j:j+1, :]
-                elif self.kind == 'mean':
-                    block[:, :, :, :] = \
-                        dE[:, i:i+1, j:j+1, :] / \
-                        (block.shape[1] * block.shape[2])
-
-        ri, ci, chi = self.isz
-        return dE_in.reshape((len(X), ri*ci*chi))
+        np.multiply(self.max_mask(view_as_blocks(X, (1, *self.k, 1))),
+                    view_as_blocks(dE, (1, 1, 1, 1)),
+                    out=view_as_blocks(dE_in, (1, *self.k, 1)))
+        return dE_in
 
     @staticmethod
     def max_mask(X: np.ndarray) -> np.ndarray:
-        blk, r, c, ch = X.shape
-        mask = np.zeros((blk, r, c, ch))
-        idx = np.argmax(X.reshape((blk, r*c, ch)), axis=1)
-        ax0, ax3 = np.indices((blk, ch))
-        mask.reshape((blk, r*c, ch))[ax0, idx, ax3] = 1
-        return mask
+        blk, rb, cb, ch, _, k0, k1, _ = X.shape
+        r, c = blk*rb*cb*ch, k0*k1
+        idx = np.argmax(X.reshape((r, c)), axis=1)
+        mask = np.zeros((r, c))
+        mask[np.arange(r), idx] = 1
+        return mask.reshape(X.shape)
+
+    def train_mean(self, dE: np.ndarray, X: np.ndarray) -> np.ndarray: # pylint: disable=W0613
+        dE = dE.reshape((len(dE), *self.osz))
+        dE_in = np.zeros((len(dE), *self.isz))
+        np.divide(view_as_blocks(dE, (1, 1, 1, 1)),
+                  self.k[0]*self.k[1],
+                  out=view_as_blocks(dE_in, (1, *self.k, 1)))
+        return dE_in
+
+    def train(self, dE: np.ndarray, out: np.ndarray, net: np.ndarray, X: np.ndarray) -> np.ndarray:
+        ri, ci, chi = self.isz
+        return self.train_func(dE, X).reshape((len(X), ri*ci*chi))
 
 
 class Pool2DFactory(NeuralLayerFactory):

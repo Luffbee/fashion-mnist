@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Callable
 from abc import ABCMeta, abstractmethod
 
 import numpy as np
@@ -18,11 +18,7 @@ class NeuralLayer(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def dactivate(self, net: np.ndarray) -> np.ndarray:
-        pass
-
-    @abstractmethod
-    def set_eta(self, eta: float) -> None:
+    def update_eta(self, update: Callable[[float], float]) -> None:
         pass
 
     @abstractmethod
@@ -30,17 +26,15 @@ class NeuralLayer(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def train(self, dE: np.ndarray, net: np.ndarray, X: np.ndarray) -> np.ndarray:
+    def train(self, dE: np.ndarray, out: np.ndarray, net: np.ndarray, X: np.ndarray) -> np.ndarray:
         pass
 
     def calc(self, X: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        assert np.isfinite(X).all()
         net = self.net(X)
+        assert np.isfinite(net).all()
         out = self.activate(net)
         return (out, net)
-
-    def delta(self, dE: np.ndarray, net: np.ndarray) -> np.ndarray:
-        assert dE.shape == net.shape
-        return dE * self.dactivate(net)
 
 
 class NeuralNet(metaclass=ABCMeta):
@@ -57,7 +51,7 @@ class NeuralNet(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def set_eta(self, eta: float) -> None:
+    def update_eta(self, update: Callable[[float], float]) -> None:
         pass
 
     @abstractmethod

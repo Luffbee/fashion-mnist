@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Callable
 import numpy as np
 
 from .base import NeuralNet, NeuralLayerFactory, NeuralLayer
@@ -30,18 +30,21 @@ class Sequential(NeuralNet):
             X, _ = layer.calc(X)
         return X
 
-    def set_eta(self, eta: float):
+    def update_eta(self, update: Callable[[float], float]):
         for layer in self.layers:
-            layer.set_eta(eta)
+            layer.update_eta(update)
 
     def train(self, X: np.ndarray, Y: np.ndarray) -> None:
         save = []
         for layer in self.layers:
             out, net = layer.calc(X)
-            save.append((X, net))
+            assert np.isfinite(out).all()
+            assert np.isfinite(net).all()
+            save.append((X, net, out))
             X = out
         assert Y.shape == X.shape
         dE = Y - X
         for layer in reversed(self.layers):
-            X, net = save.pop()
-            dE = layer.train(dE, net, X)
+            X, net, out = save.pop()
+            dE = layer.train(dE, out, net, X)
+            assert np.isfinite(dE).all()
