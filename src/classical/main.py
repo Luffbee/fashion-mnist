@@ -6,7 +6,7 @@ from numpy import ndarray
 import pandas as pd
 
 from utils import mnist_reader
-from classifier import Classifier, NaiveBayes, KNN, RKNN, RandomClassifier, randRKNN # pylint: disable=W0611
+from classifier import Classifier, NaiveBayes, KNN, RKNN, RandomClassifier, randRKNN  # pylint: disable=W0611
 
 CLS_LEN = 10
 CLASSES = list(range(CLS_LEN))
@@ -94,17 +94,18 @@ def preprocess(X: ndarray) -> ndarray:
     mx = np.max(X, axis=1, keepdims=True)
     nX = ((X / mx) * 255)
     ret = nX.astype(np.uint8)
-    step = 14
+    step = 5
     for r0 in range(0, 28-step+1):
         for c0 in range(0, 28-step+1):
             idx = block_index((r0, c0), (r0+step, c0+step), (28, 28))
             ret = np.column_stack(
-                (ret, np.count_nonzero(X[:, idx], axis=1).astype(np.uint8)))
+                (ret, (np.count_nonzero(X[:, idx], axis=1) / (step ** 2) * 255).astype(np.uint8)))
     return ret
 
 
 def main() -> None:
     clsfer_kind = 'KNN'
+    #clsfer_kind = 'NaiveBayes'
     Tx, Ty = mnist_reader.load_mnist('../../data/fashion', kind='train')
     Vx, Vy = mnist_reader.load_mnist('../../data/fashion', kind='t10k')
     pre_start = time.time()
@@ -119,7 +120,7 @@ def main() -> None:
         clsfer = NaiveBayes(Tx, 255, Ty, CLS_LEN)
     elif clsfer_kind == 'KNN':
         clsfer = KNN(Tx, Ty, CLS_LEN, 5)
-        #clsfer = randRKNN(Tx, Ty, CLS_LEN, 5, 100, 10000, 30, 10)
+        #clsfer = randRKNN(Tx, Ty, CLS_LEN, 5, 64, 10000, 30, 10)
     else:
         assert False
     train_end = time.time()

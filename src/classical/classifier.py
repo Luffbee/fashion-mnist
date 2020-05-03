@@ -2,6 +2,7 @@ from typing import List
 from abc import ABCMeta, abstractmethod
 import random
 from multiprocessing import Pool, cpu_count
+import sys
 
 import numpy as np
 from numpy import ndarray
@@ -79,7 +80,7 @@ class KNN(Classifier):
         v = data.var(axis=0)
         col_size = int(len(v) * 0.9)
         idx = np.argpartition(v, len(v) - col_size)[-col_size:]
-        self.data = data[:,idx].copy()
+        self.data = data[:, idx].copy()
         self.idx = idx
         self.label = label
         self.cls_len = cls_len
@@ -87,7 +88,7 @@ class KNN(Classifier):
         self.cat_m = cat_m
 
     def classify(self, data: ndarray, choose_one: bool = True) -> ndarray:
-        data = data[:,self.idx].copy()
+        data = data[:, self.idx].copy()
         r = len(data)
         cpu_n = cpu_count() - 1
         blk = (r + cpu_n - 1) // cpu_n
@@ -121,10 +122,13 @@ class KNN(Classifier):
 
 class RKNN(Classifier):
     def __init__(self, data: ndarray, label: ndarray, cls_len: int, k: int, idx_pool: int = 16, idx_sample: int = 16, cat_m: float = 0.0) -> None:
+        sys.setrecursionlimit(10000)
         v = data.var(axis=0)
         idx = np.argpartition(v, len(v) - idx_pool)[-idx_pool:]
         idx = random.sample(list(idx), idx_sample)
-        self.kdtree = KDTree(data[:, idx].astype(np.int16), leafsize=16)
+        idx.sort()
+        self.kdtree = KDTree(
+            data[:, idx].astype(np.float16), leafsize=16)
         self.idx = idx
         self.label = label
         self.cls_len = cls_len
@@ -133,7 +137,8 @@ class RKNN(Classifier):
 
     def classify(self, data: ndarray, choose_one: bool = True) -> ndarray:
         r, _ = data.shape[:2]
-        dis, idx = self.kdtree.query(data[:, self.idx], self.k, eps=0.1)
+        dis, idx = self.kdtree.query(
+            data[:, self.idx].astype(np.float16), self.k, eps=0.1)
         ret = np.zeros((r, self.cls_len))
         for i in range(r):
             if self.k == 1:
