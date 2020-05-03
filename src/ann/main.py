@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Callable
 import time
 
 import numpy as np
@@ -9,8 +9,8 @@ from utils import mnist_reader
 from nnlib.base import NeuralNet
 from nnlib.bp import buildBP  # pylint: disable=W0611
 from nnlib.model import Sequential
-from nnlib.layers import FCFactory, Conv2DFactory
-from nnlib.activation import Sigmoid
+from nnlib.layers import FCFactory, Conv2DFactory, Pool2DFactory  # pylint: disable=W0611
+from nnlib.activation import Softmax, Sigmoid, ReLU, RReLU, Tanh  # pylint: disable=W0611
 
 CLS_LEN = 10
 CLASSES = list(range(CLS_LEN))
@@ -52,7 +52,7 @@ def recall(cls: int, res: np.ndarray) -> float:
     return good / tot
 
 
-def verify(clsfer: NeuralNet, X: ndarray, Y: ndarray):
+def verify(clsfer: NeuralNet, X: ndarray, Y: ndarray, detail: bool = False):
     run_start = time.time()
     r_poss = clsfer.calc(X)
     run_end = time.time()
@@ -65,25 +65,25 @@ def verify(clsfer: NeuralNet, X: ndarray, Y: ndarray):
     print('============================')
     print(f'data set size: {len(X)}, classify time: {run_time}s')
     print('accuracy: ', accuracy(result))
-    analysis: Dict[str, List[float]] = {
-        'precision': [],
-        'recall': [],
-    }
-    for cls in range(len(CLASSES)):
-        analysis['precision'].append(precision(cls, result))
-        analysis['recall'].append(recall(cls, result))
-    print(pd.DataFrame(data=analysis, columns=[
-        'precision', 'recall'], index=CLASSES))
-    print('')
-    print('row name: tag, colum name: result')
-    print(pd.DataFrame(result, columns=CLASSES, index=[
-        f'{CLASSES[i]} {CLASSE_NAMES[i]}' for i in range(len(CLASSES))]))
+    if detail:
+        analysis: Dict[str, List[float]] = {
+            'precision': [],
+            'recall': [],
+        }
+        for cls in range(len(CLASSES)):
+            analysis['precision'].append(precision(cls, result))
+            analysis['recall'].append(recall(cls, result))
+        print(pd.DataFrame(data=analysis, columns=[
+            'precision', 'recall'], index=CLASSES))
+        print('')
+        print('row name: tag, colum name: result')
+        print(pd.DataFrame(result, columns=CLASSES, index=[
+            f'{CLASSES[i]} {CLASSE_NAMES[i]}' for i in range(len(CLASSES))]))
 
 
 def label2Y(label: ndarray) -> ndarray:
     Yo = np.zeros((len(label), CLS_LEN))
-    idx = np.arange(len(label)) * CLS_LEN + label
-    np.put(Yo, idx, 1)
+    Yo[np.arange(len(label)), label] = 1
     return Yo
 
 
@@ -92,40 +92,49 @@ def preprocess(X: ndarray) -> ndarray:
     return X / mx
 
 
+def exp_eta(a: float) -> Callable[[float], float]:
+    return lambda x: x * a
+
+
 def main() -> None:
     Tx, Ty = mnist_reader.load_mnist('../../data/fashion', kind='train')
     Vx, Vy = mnist_reader.load_mnist('../../data/fashion', kind='t10k')
-    Tx = Tx[:2000]
-    Ty = Ty[:2000]
 
     Tx = preprocess(Tx)
     Tyy = label2Y(Ty)
     Vx = preprocess(Vx)
-    train_time = 0.0
-    eta = 0.4
     # model = buildBP(Tx.shape[1], [128, 256, 64, CLS_LEN],
     #                eta)  # pylint: disable=E1136
     model = Sequential(np.array([28, 28, 1]))
-    model.add(Conv2DFactory((5, 5), 3, Sigmoid(), eta))
-    model.add(FCFactory(200, Sigmoid(), eta))
-    model.add(FCFactory(64, Sigmoid(), eta))
-    model.add(FCFactory(CLS_LEN, Sigmoid(), eta))
+    model.add(Conv2DFactory((5, 5), 4, RReLU(0.02, 0.02), 1e-3))
+    model.add(Pool2DFactory((2, 2), 'max'))
+    model.add(FCFactory(128, Sigmoid(), 4e-1))
+    model.add(FCFactory(256, Sigmoid(), 4e-1))
+    model.add(FCFactory(64, Sigmoid(), 4e-1))
+    model.add(FCFactory(CLS_LEN, Softmax(), 1e-2))
 
     for layer in model.layers:
         print(layer.isize().prod(), layer.osize().prod())
 
-    for i in range(50):
-        blk = min(i*10+1, 5000)
+    train_time = 0.0
+    #sample_size = len(Tx)
+    blk = 16
+    for i in range(20):
+        idx = np.random.permutation(len(Tx))
+        #idx = np.random.randint(len(Tx), size=sample_size)
+        # idx.sort()
         train_start = time.time()
-        model.trainBGD(Tx, Tyy, blk)
+        model.trainBGD(Tx[idx], Tyy[idx], blk)
         train_end = time.time()
         print(f'------ epoch {i} -------')
-        print(f'eta: {eta}, blk: {blk}')
+        print(f'blk: {blk}')
         print(f'training time: {train_end-train_start}s')
+        # print(model.calc(Tx[:5]).round(2))
+        # print(Tyy[:5])
         train_time += train_end - train_start
-        verify(model, Vx, Vy)
-        eta = max(eta * 0.9, 0.001)
-        model.set_eta(eta)
+        verify(model, Vx, Vy)  # , True)
+        model.update_eta(exp_eta(0.9))
+        #blk = min((i//4)+1, 64)
     print(f'training time: {train_time}s')
     print('verify on Tx')
     verify(model, Tx, Ty)
