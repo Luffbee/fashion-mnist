@@ -8,7 +8,7 @@ from utils import mnist_reader
 
 from nnlib.base import NeuralNet
 from nnlib.bp import buildBP  # pylint: disable=W0611
-from nnlib.model import Sequential
+from nnlib.model import Sequential  # pylint: disable=W0611
 from nnlib.layers import FCFactory, Conv2DFactory, Pool2DFactory  # pylint: disable=W0611
 from nnlib.activation import Softmax, Sigmoid, ReLU, RReLU, Tanh  # pylint: disable=W0611
 
@@ -104,7 +104,7 @@ def main() -> None:
     Tyy = label2Y(Ty)
     Vx = preprocess(Vx)
     # model = buildBP(Tx.shape[1], [128, 256, 64, CLS_LEN],
-    #                eta)  # pylint: disable=E1136
+    #                4e-1)  # pylint: disable=E1136
     model = Sequential(np.array([28, 28, 1]))
     model.add(Conv2DFactory((5, 5), 4, RReLU(0.02, 0.02), 1e-3))
     model.add(Pool2DFactory((2, 2), 'max'))
@@ -118,8 +118,8 @@ def main() -> None:
 
     train_time = 0.0
     #sample_size = len(Tx)
-    blk = 16
-    for i in range(20):
+    blk = 1
+    for i in range(50):
         idx = np.random.permutation(len(Tx))
         #idx = np.random.randint(len(Tx), size=sample_size)
         # idx.sort()
@@ -134,7 +134,7 @@ def main() -> None:
         train_time += train_end - train_start
         verify(model, Vx, Vy)  # , True)
         model.update_eta(exp_eta(0.9))
-        #blk = min((i//4)+1, 64)
+        blk = min(blk + 2, 100)
     print(f'training time: {train_time}s')
     print('verify on Tx')
     verify(model, Tx, Ty)
